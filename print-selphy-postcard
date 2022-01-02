@@ -70,6 +70,31 @@ zenity_preview(){
     return $?
 }
 
+checks(){
+    check="true"
+    for ex in \
+        identify convert grep tr head lpq lpr
+    do
+        loc=`which "${ex}"`
+        if [ "${loc}" = "" ];then
+            echo "${ex} is missing"
+            check="false"
+        fi
+    done
+
+    if [ "${check}" = "false" ];then
+        echo "Some utilities are missing"
+        exit 1
+    fi
+
+    # check printer
+    lpq -P "${PRINTER}" >/dev/null 2>&1 || check="false"
+    if [ "${check}" = "false" ];then
+        echo "Can't check printer ${PRINTER} status"
+        exit 1
+    fi
+}
+
 # Argument parsing
 POSITIONAL=()
 while [[ $# > 0 ]]; do # while arguments count > 0
@@ -110,30 +135,8 @@ if [ ! -f "${1}" ];then
     exit 1
 fi
 
-check="true"
-for ex in \
- identify convert grep tr head lpq lpr
-  do
-    loc=`which "${ex}"`
-    if [ "${loc}" = "" ]
-      then
-        echo "${ex} is missing"
-        check="false"
-    fi
-done
-
-if [ "${check}" = "false" ]
-  then
-    echo "Some utilities are missing"
-    exit 1
-fi
-
-lpq -P "${PRINTER}" >/dev/null 2>&1 || check="false"
-if [ "${check}" = "false" ]
-  then
-    echo "Can't check printer ${PRINTER} status"
-    exit 1
-fi
+# checking for required utilities
+checks
 
 if [ "${border:-0}" -eq 1 ];then
     imggeom="1700x1130"
@@ -172,5 +175,6 @@ if [ "${preview:-0}" -eq 1 ];then
 fi
 
 lpr -o raw -P "${PRINTER}" "${tmpdir}/printFile"
+rm -f "${tmpdir}/printFile"
 
 exit 0
