@@ -37,7 +37,78 @@
 #
 PRINTER="Canon_SELPHY_CP1200"
 
+tmpdir="/tmp"
 # End of configuration parameters.
+
+help(){
+    cat << EOF
+Send images to a Canon Selphy printer.
+
+${0##*/} [-b|--border] [-h|--help] [-p|--preview] [-P|--printer NAME] <file>
+
+<file>		The image to print.
+
+Available options:
+    -b, --border        Print a white margin around the image.
+    -h, --help          Print this help
+    -p, --preview       Display a print preview instead of sending to printer.
+                        using zenity.
+    -P, --printer NAME  Set the Selphy printer name, as seen by CUPS.
+                        Defaults to: "${PRINTER}"
+EOF
+}
+
+zenity_preview(){
+#width: 1760px; height: 1190px
+    echo "<div id=\"rectangle\" style=\"width: 1872px; height: 1248px;border:solid thick darkblue; border-radius: 1em; \"><img src=\"$1\" /></div>" | \
+    zenity --text-info --html \
+        --title="PRINT" \
+        --width=2000 \
+        --height=1300 \
+        --filename=/dev/stdin \
+        --ok-label "Print" --cancel-label "Cancel"
+    return $?
+}
+
+# Argument parsing
+POSITIONAL=()
+while [[ $# > 0 ]]; do # while arguments count > 0
+    case "$1" in
+        -b|--border)
+            border=1
+            shift
+          ;;
+        -h|--help)
+            help
+            exit 0
+          ;;
+        -p|--preview)
+            preview=1
+            shift
+          ;;
+        -P|--printer)
+            PRINTER="$2"
+            shift 2 # shift twice to bypass switch and its value
+          ;;
+        *)    # unknown option
+            POSITIONAL+=("$1")
+            shift
+          ;;
+      esac
+done
+set -- "${POSITIONAL[@]}" # restore positional parameters
+
+if [ $# == 0 ]
+  then
+    echo "Missing Parameters.\nPlease see command line for help"
+    help
+    exit 1
+fi
+
+if [ ! -f "${1}" ];then
+    echo "Input file not found" 1>&2
+    exit 1
+fi
 
 check="true"
 for ex in \
@@ -58,44 +129,48 @@ if [ "${check}" = "false" ]
 fi
 
 lpq -P "${PRINTER}" >/dev/null 2>&1 || check="false"
-
 if [ "${check}" = "false" ]
   then
     echo "Can't check printer ${PRINTER} status"
     exit 1
 fi
 
-imggeom="1760x1190^"
-
-if [ "${1}" = "--border" ]
-  then
-    shift 1
+if [ "${border:-0}" -eq 1 ];then
     imggeom="1700x1130"
+else
+    imggeom="1760x1190"  # border is 60px = 5 mm
 fi
 
-if [ -f "${1}" ]
-  then
-    if \
+# Check need rotate
+if \
     echo $(($(identify "${1}" | tr ' ' '\n' | \
               grep '^[0-9]\+x[0-9]\+$' | \
               head -n 1 | tr 'x' '-'))) | \
     grep -q - 
-      then
-        rotateopt="-rotate" 
-        rot="90"
-      else
-        rotateopt=""
-        rot=""
-    fi
-
-    convert ${rotateopt} ${rot} -define filter:blur=0.8 \
-	    -filter Gaussian -resize "${imggeom}" \
-	    -gravity center -extent "1760x1190" "${1}" png:- | \
-	convert -page "+46+34" -background white -flatten \
-		-extent "1872x1248" png:- -quality 97 jpg:- | \
-	lpr -o raw -P "${PRINTER}"
-
-  else
-    echo "No input file" 1>&2
-    exit 1 
+then
+    rotateopt="-rotate"
+    rot="90"
+else
+    rotateopt=""
+    rot=""
 fi
+
+# Convert image
+# Standard Postcard (6”x4”) 1847 x 1247 pixels (300dpi)
+convert ${rotateopt} ${rot} -define filter:blur=0.8 \
+    -filter Gaussian -resize "${imggeom}" \
+    -gravity center -extent "1760x1190" "${1}" png:- | \
+convert -page "+46+34" -background white -flatten \
+    -extent "1872x1248" png:- -quality 97 jpg:-  \
+> ${tmpdir}/printFile
+
+if [ "${preview:-0}" -eq 1 ];then
+    if (! zenity_preview "${tmpdir}/printFile");then
+        echo "Cancel print"
+        exit 0
+    fi
+fi
+
+lpr -o raw -P "${PRINTER}" "${tmpdir}/printFile"
+
+exit 0
