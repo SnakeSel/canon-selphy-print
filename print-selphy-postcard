@@ -5,8 +5,6 @@
 # Print postcard-sized (148x100mm, 5.8 x 3.9in) images
 # on a Canon Selphy CP1200 and compatible photo printers
 #
-# Usage: print-selphy-postcard [--border] <file>
-#
 # This script requires ImageMagick, GNU sed and other text processing
 # utilities, and CUPS.
 
@@ -35,9 +33,13 @@
 # (usually http://localhost:631 , Administration / Add Printer menu) while
 # mDNS service discovery is enabled.
 #
-PRINTER="Canon_SELPHY_CP1200"
+# If PRINTER=AUTO, the script will search for the first printer containing "SELPHY" in the name
+#
+#PRINTER="Canon_SELPHY_CP1200"
+PRINTER=AUTO
 
 tmpdir="/tmp"
+
 # End of configuration parameters.
 
 help(){
@@ -75,7 +77,7 @@ checks(){
     for ex in \
         identify convert grep tr head lpq lpr
     do
-        loc=`which "${ex}"`
+        loc=$(which "${ex}")
         if [ "${loc}" = "" ];then
             echo "${ex} is missing"
             check="false"
@@ -95,9 +97,14 @@ checks(){
     fi
 }
 
+#will return the name of the printer containing $1
+get_printer(){
+    lpstat -p | grep "$1" | awk '{ print $2 }' | head -n 1
+}
+
 # Argument parsing
 POSITIONAL=()
-while [[ $# > 0 ]]; do # while arguments count > 0
+while [ $# -gt 0 ]; do # while arguments count > 0
     case "$1" in
         -b|--border)
             border=1
@@ -123,9 +130,10 @@ while [[ $# > 0 ]]; do # while arguments count > 0
 done
 set -- "${POSITIONAL[@]}" # restore positional parameters
 
-if [ $# == 0 ]
+#if [ $# == 0 ]
+if [ -z "$1" ]
   then
-    echo "Missing Parameters.\nPlease see command line for help"
+    echo -e "Missing Parameters.\nPlease read help:\n\n"
     help
     exit 1
 fi
@@ -135,9 +143,14 @@ if [ ! -f "${1}" ];then
     exit 1
 fi
 
+if [ "$PRINTER" = "AUTO" ];then
+    PRINTER=$(get_printer "SELPHY")
+    echo "PRINTER: $PRINTER"
+fi
+
 # checking for required utilities
 checks
-
+echo "cheks OK"
 if [ "${border:-0}" -eq 1 ];then
     imggeom="1700x1130"
 else
@@ -170,6 +183,7 @@ convert -page "+46+34" -background white -flatten \
 if [ "${preview:-0}" -eq 1 ];then
     if (! zenity_preview "${tmpdir}/printFile");then
         echo "Cancel print"
+        rm -f "${tmpdir}/printFile"
         exit 0
     fi
 fi
